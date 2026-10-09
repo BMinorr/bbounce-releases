@@ -25,7 +25,9 @@
     -webkit-font-smoothing: antialiased;
   }
   main { max-width: 440px; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); }
-  .brand { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+  .brand { text-align: center; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .brand a, footer a { color: var(--text); text-decoration: none; }
+  .brand a:hover, footer a:hover { text-decoration: underline; }
   .cover {
     width: min(78vw, 300px); aspect-ratio: 1; margin: 22px auto 26px; border-radius: 16px;
     background: linear-gradient(135deg, color-mix(in srgb, var(--tint) 85%, white 15%), color-mix(in srgb, var(--tint) 55%, black 45%));
@@ -56,16 +58,20 @@
   .link:active { background: rgba(255,255,255,.1); }
   .link .name { font-weight: 650; flex: 1; }
   .link .what { color: var(--dim); font-size: 14px; }
+  .row { width: 100%; text-align: left; font: inherit; }
+  .row .num { color: var(--dim); width: 22px; font-variant-numeric: tabular-nums; }
+  .row .what { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.now .name, .row.now .num { color: var(--accent); }
+  .skip:disabled, .play:disabled { opacity: .35; cursor: default; }
   .empty { text-align: center; padding: 80px 16px; color: var(--dim); }
   .empty h1 { color: var(--text); margin-bottom: 8px; }
   footer { text-align: center; color: var(--dim); font-size: 12px; margin-top: 34px; }
-  footer a { color: var(--dim); }
   @media (prefers-reduced-motion: no-preference) { .fill, .knob { transition: none; } }
 </style>
 </head>
 <body>
 <main id="app">
-  <div class="brand">bBounce</div>
+  <div class="brand">Sent with <a href="https://bminorr.github.io/bbounce-releases/" target="_blank" rel="noopener">bBounce</a></div>
   <div class="empty" id="loading">Loading…</div>
 </main>
 <audio id="audio" preload="metadata" playsinline></audio>
@@ -76,19 +82,32 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt
 const fmt = (s) => { if (!isFinite(s) || s < 0) s = 0; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
 const safeUrl = (u) => /^https:\/\//i.test(u) ? u : "";
 
-async function readTrack() {
+// One track ("1": title, artist, project, colour, stream, then "name<TAB>url" links) or a playlist ("2": title, artist,
+// colour, then "T<TAB>title<TAB>artist<TAB>project<TAB>stream" per track, each followed by "L<TAB>name<TAB>url" links).
+async function readPage() {
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash.startsWith("z")) return null;
   const b64 = hash.slice(1).replace(/-/g, "+").replace(/_/g, "/");
   const bytes = Uint8Array.from(atob(b64 + "===".slice((b64.length + 3) % 4)), c => c.charCodeAt(0));
   if (typeof DecompressionStream === "undefined") throw new Error("old-browser");
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
-  const text = await new Response(stream).text();
-  const lines = text.split("\n");
-  if (lines[0] !== "1" || lines.length < 6) return null;
-  const links = lines.slice(6).filter(Boolean).map(l => { const i = l.indexOf("\t"); return { name: l.slice(0, i), url: safeUrl(l.slice(i + 1)) }; })
-                     .filter(l => l.url);
-  return { title: lines[1], artist: lines[2], project: lines[3], colour: lines[4], stream: safeUrl(lines[5]), links };
+  const lines = (await new Response(stream).text()).split("\n");
+  if (lines[0] === "1" && lines.length >= 6) {
+    const links = lines.slice(6).filter(Boolean).map(l => { const i = l.indexOf("\t"); return { name: l.slice(0, i), url: safeUrl(l.slice(i + 1)) }; })
+                       .filter(l => l.url);
+    return { playlist: false, title: lines[1], artist: lines[2], colour: lines[4],
+             tracks: [{ title: lines[1], artist: lines[2], project: lines[3], stream: safeUrl(lines[5]), links }] };
+  }
+  if (lines[0] === "2" && lines.length >= 4) {
+    const page = { playlist: true, title: lines[1], artist: lines[2], colour: lines[3], tracks: [] };
+    for (const line of lines.slice(4)) {
+      const p = line.split("\t");
+      if (p[0] === "T") page.tracks.push({ title: p[1] || "", artist: p[2] || "", project: p[3] || "", stream: safeUrl(p[4] || ""), links: [] });
+      else if (p[0] === "L" && page.tracks.length && safeUrl(p[2] || "")) page.tracks[page.tracks.length - 1].links.push({ name: p[1], url: p[2] });
+    }
+    return page.tracks.length ? page : null;
+  }
+  return null;
 }
 
 function linkLabel(name) {
@@ -103,32 +122,37 @@ function showMessage(title, text) {
   app.append($(`<div class="empty"><h1>${esc(title)}</h1><div>${esc(text)}</div></div>`));
 }
 
-function render(t) {
-  if (/^#[0-9a-f]{6}$/i.test(t.colour)) document.documentElement.style.setProperty("--tint", t.colour);
-  document.title = t.title ? `${t.title} · bBounce` : "bBounce Player";
+const skipBack = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.6 7.8A8 8 0 1 1 4 13"/><path d="M5.5 2.5 5 6.5l4 .5"/></svg><span>15</span>`;
+const skipFwd = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M18.4 7.8A8 8 0 1 0 20 13"/><path d="M18.5 2.5 19 6.5l-4 .5"/></svg><span>15</span>`;
+const prevIcon = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 6v12l-10-6Z"/><path d="M5.5 6v12"/></svg>`;
+const nextIcon = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 6v12l10-6Z"/><path d="M18.5 6v12"/></svg>`;
+const playIcon = `<svg width="30" height="30" viewBox="0 0 24 24"><path d="M8 5.5 19 12 8 18.5Z" fill="#111114" stroke="#111114" stroke-linejoin="round" stroke-width="1.5"/></svg>`;
+const pauseIcon = `<svg width="30" height="30" viewBox="0 0 24 24" fill="#111114"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>`;
+
+function render(page) {
+  if (/^#[0-9a-f]{6}$/i.test(page.colour)) document.documentElement.style.setProperty("--tint", page.colour);
+  document.title = page.title ? `${page.title} · bBounce` : "bBounce Player";
   const app = document.getElementById("app");
   app.querySelector("#loading").remove();
-  const initial = (t.title || "?").trim().charAt(0).toUpperCase();
-  const sub = [t.artist, t.project].filter(Boolean).join(" · ");
+  const initial = (page.title || "?").trim().charAt(0).toUpperCase();
   app.append($(`<div class="cover" aria-hidden="true">${esc(initial)}</div>`));
-  app.append($(`<div><h1>${esc(t.title || "Untitled")}</h1>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>`));
+  const heading = $(`<div><h1></h1><div class="sub"></div></div>`);
+  app.append(heading);
 
   const audio = document.getElementById("audio");
   const player = $(`<section aria-label="Player">
       <div class="bar" role="slider" aria-label="Position" tabindex="0"><div class="track"></div><div class="fill"></div><div class="knob"></div></div>
       <div class="times"><span id="pos">0:00</span><span id="len">–:––</span></div>
       <div class="controls">
-        <button class="skip" id="back" aria-label="Back 15 seconds"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.6 7.8A8 8 0 1 1 4 13"/><path d="M5.5 2.5 5 6.5l4 .5"/></svg><span>15</span></button>
+        <button class="skip" id="back" aria-label="${page.playlist ? "Previous track" : "Back 15 seconds"}">${page.playlist ? prevIcon : skipBack}</button>
         <button class="play" id="play" aria-label="Play"></button>
-        <button class="skip" id="fwd" aria-label="Forward 15 seconds"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M18.4 7.8A8 8 0 1 0 20 13"/><path d="M18.5 2.5 19 6.5l-4 .5"/></svg><span>15</span></button>
+        <button class="skip" id="fwd" aria-label="${page.playlist ? "Next track" : "Forward 15 seconds"}">${page.playlist ? nextIcon : skipFwd}</button>
       </div>
       <p class="note" id="note"></p>
     </section>`);
   app.append(player);
   const play = player.querySelector("#play"), note = player.querySelector("#note");
   const bar = player.querySelector(".bar"), fill = player.querySelector(".fill"), knob = player.querySelector(".knob");
-  const playIcon = `<svg width="30" height="30" viewBox="0 0 24 24"><path d="M8 5.5 19 12 8 18.5Z" fill="#111114" stroke="#111114" stroke-linejoin="round" stroke-width="1.5"/></svg>`;
-  const pauseIcon = `<svg width="30" height="30" viewBox="0 0 24 24" fill="#111114"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>`;
   const sync = () => {
     play.innerHTML = audio.paused ? playIcon : pauseIcon;
     play.setAttribute("aria-label", audio.paused ? "Play" : "Pause");
@@ -140,67 +164,110 @@ function render(t) {
     player.querySelector("#pos").textContent = fmt(p);
     player.querySelector("#len").textContent = isFinite(d) ? fmt(d) : "–:––";
   };
-  sync();
 
-  if (!t.stream) {
-    for (const b of player.querySelectorAll("button")) b.disabled = true;
-    note.textContent = "This one can't play here: open it from one of the links below.";
-  } else {
-    audio.src = t.stream;
-    audio.addEventListener("timeupdate", sync);
-    audio.addEventListener("durationchange", sync);
-    audio.addEventListener("play", sync);
-    audio.addEventListener("pause", sync);
-    audio.addEventListener("ended", sync);
-    audio.addEventListener("waiting", () => { note.textContent = "Loading…"; });
-    audio.addEventListener("playing", () => { note.textContent = ""; });
-    audio.addEventListener("error", () => {
-      note.textContent = "The file isn't there any more (quick links expire) or the connection dropped. The links below may still work.";
-      play.disabled = true;
+  // A playlist: its tracks, tap one to play it (the playing one in the accent colour).
+  let list = null;
+  if (page.playlist) {
+    app.append($(`<h2>${esc(page.tracks.length === 1 ? "1 track" : page.tracks.length + " tracks")}</h2>`));
+    list = $(`<div class="links"></div>`);
+    page.tracks.forEach((t, i) => {
+      const row = $(`<button class="link row"><span class="num">${i + 1}</span><span class="name">${esc(t.title || "Untitled")}</span><span class="what">${esc(t.project)}</span></button>`);
+      row.addEventListener("click", () => choose(i, true));
+      list.append(row);
     });
-    play.addEventListener("click", () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); });
-    player.querySelector("#back").addEventListener("click", () => { audio.currentTime = Math.max(0, audio.currentTime - 15); });
-    player.querySelector("#fwd").addEventListener("click", () => { audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 15); });
-    const seek = (e) => {
-      const r = bar.getBoundingClientRect();
-      const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      if (isFinite(audio.duration)) { audio.currentTime = f * audio.duration; sync(); }
-    };
-    bar.addEventListener("pointerdown", (e) => { bar.setPointerCapture(e.pointerId); seek(e); });
-    bar.addEventListener("pointermove", (e) => { if (bar.hasPointerCapture(e.pointerId)) seek(e); });
-    bar.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowRight") audio.currentTime += 5;
-      else if (e.key === "ArrowLeft") audio.currentTime = Math.max(0, audio.currentTime - 5);
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === " " && e.target === document.body) { e.preventDefault(); play.click(); }
-    });
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.project });
-      navigator.mediaSession.setActionHandler("play", () => audio.play());
-      navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+    app.append(list);
+  }
+  const getIt = $(`<div></div>`);
+  app.append(getIt);
+
+  let current = -1;
+  const choose = (i, start) => {
+    if (i < 0 || i >= page.tracks.length) return;
+    current = i;
+    const t = page.tracks[i];
+    heading.querySelector("h1").textContent = page.playlist ? t.title || "Untitled" : page.title || "Untitled";
+    const sub = page.playlist ? [t.artist, page.title].filter(Boolean).join(" · ") : [t.artist, t.project].filter(Boolean).join(" · ");
+    heading.querySelector(".sub").textContent = sub;
+    if (list) [...list.children].forEach((r, k) => r.classList.toggle("now", k === i));
+    note.textContent = t.stream ? "" : "This one can't play here: open it from its links below.";
+    play.disabled = !t.stream;
+    if (t.stream) {
+      audio.src = t.stream;
+      if (start) audio.play().catch(() => {});
+    } else {
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    if ("mediaSession" in navigator)
+      navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: page.playlist ? page.title : t.project });
+    // Where to get it: its links (and the file itself).
+    getIt.replaceChildren();
+    const links = [...t.links];
+    if (t.stream && !links.some(l => l.url === t.stream)) links.push({ name: "This file", url: t.stream });
+    if (links.length) {
+      getIt.append($(`<h2>${page.playlist ? "Get “" + esc(t.title) + "”" : "Get it"}</h2>`));
+      const box = $(`<div class="links"></div>`);
+      for (const l of links)
+        box.append($(`<a class="link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
+            <span class="name">${esc(l.name)}</span><span class="what">${esc(l.name === "This file" ? "Download" : linkLabel(l.name))}</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></a>`));
+      getIt.append(box);
+    }
+    sync();
+  };
+
+  audio.addEventListener("timeupdate", sync);
+  audio.addEventListener("durationchange", sync);
+  audio.addEventListener("play", sync);
+  audio.addEventListener("pause", sync);
+  audio.addEventListener("ended", () => { sync(); if (page.playlist && current + 1 < page.tracks.length) choose(current + 1, true); });
+  audio.addEventListener("waiting", () => { note.textContent = "Loading…"; });
+  audio.addEventListener("playing", () => { note.textContent = ""; });
+  audio.addEventListener("error", () => {
+    if (!audio.getAttribute("src")) return;
+    note.textContent = "The file isn't there any more (quick links expire) or the connection dropped. The links below may still work.";
+  });
+  play.addEventListener("click", () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); });
+  player.querySelector("#back").addEventListener("click", () => {
+    if (page.playlist) choose(audio.currentTime > 3 ? current : Math.max(0, current - 1), true);
+    else audio.currentTime = Math.max(0, audio.currentTime - 15);
+  });
+  player.querySelector("#fwd").addEventListener("click", () => {
+    if (page.playlist) choose(Math.min(page.tracks.length - 1, current + 1), true);
+    else audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 15);
+  });
+  const seek = (e) => {
+    const r = bar.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    if (isFinite(audio.duration)) { audio.currentTime = f * audio.duration; sync(); }
+  };
+  bar.addEventListener("pointerdown", (e) => { bar.setPointerCapture(e.pointerId); seek(e); });
+  bar.addEventListener("pointermove", (e) => { if (bar.hasPointerCapture(e.pointerId)) seek(e); });
+  bar.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") audio.currentTime += 5;
+    else if (e.key === "ArrowLeft") audio.currentTime = Math.max(0, audio.currentTime - 5);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === " " && e.target === document.body) { e.preventDefault(); play.click(); }
+  });
+  if ("mediaSession" in navigator) {
+    navigator.mediaSession.setActionHandler("play", () => audio.play());
+    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+    if (page.playlist) {
+      navigator.mediaSession.setActionHandler("previoustrack", () => choose(Math.max(0, current - 1), true));
+      navigator.mediaSession.setActionHandler("nexttrack", () => choose(Math.min(page.tracks.length - 1, current + 1), true));
+    } else {
       navigator.mediaSession.setActionHandler("seekbackward", () => { audio.currentTime = Math.max(0, audio.currentTime - 15); });
       navigator.mediaSession.setActionHandler("seekforward", () => { audio.currentTime += 15; });
     }
   }
-
-  const links = [...t.links];
-  if (t.stream && !links.some(l => l.url === t.stream)) links.push({ name: "This file", url: t.stream });
-  if (links.length) {
-    app.append($(`<h2>Get it</h2>`));
-    const list = $(`<div class="links"></div>`);
-    for (const l of links)
-      list.append($(`<a class="link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
-          <span class="name">${esc(l.name)}</span><span class="what">${esc(l.name === "This file" ? "Download" : linkLabel(l.name))}</span>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></a>`));
-    app.append(list);
-  }
-  app.append($(`<footer>Sent with bBounce</footer>`));
+  choose(0, false);
+  app.append($(`<footer>by <a href="https://bminorr.github.io/" target="_blank" rel="noopener">B Minor</a></footer>`));
 }
 
-readTrack().then(t => t ? render(t) : showMessage("Nothing to play", "Scan a QR code from bBounce to open a track here."))
-           .catch(e => showMessage(e.message === "old-browser" ? "Update your browser" : "This link is damaged",
-                                   e.message === "old-browser" ? "This page needs a newer browser to read the track." : "Scan the QR code again, or ask for a new one."));
+readPage().then(p => p ? render(p) : showMessage("Nothing to play", "Scan a QR code from bBounce to open a track here."))
+          .catch(e => showMessage(e.message === "old-browser" ? "Update your browser" : "This link is damaged",
+                                  e.message === "old-browser" ? "This page needs a newer browser to read the track." : "Scan the QR code again, or ask for a new one."));
 window.addEventListener("hashchange", () => location.reload());
 </script>
 </body>
