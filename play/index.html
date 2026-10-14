@@ -9,74 +9,130 @@
 <!--
   The page a bBounce QR code opens (Source/PlayerLink.h): what to play and where it was sent travel after the "#",
   which the browser never sends to a server. "z" + base64url of zlib-deflated lines:
-  version, title, artist, project, colour, stream URL, then "name<TAB>url" for each link.
+  version, title, artist, project, colour, stream URL, then "name<TAB>url" for each link ("F<TAB>who sent it",
+  "Y<TAB>the lyrics file's address" are lines of their own).
+  1.9.13: it looks like the app. One track: the player page (the cover, the title, Lyrics · Get it · Open in bBounce,
+  a thin bar, −15 · play · +15). A playlist: an album page (its colour across the top, the name centred, who sent it,
+  one white Play, the numbered tracks), and a small player at the bottom while one plays.
 -->
 <style>
   :root {
-    --bg: #0a0a0c; --panel: rgba(255,255,255,.06); --edge: rgba(255,255,255,.08); --text: #f2f2f2; --dim: #8f8f8f;
-    --tint: #ff8a3d; --accent: #ff8a3d;
+    --bg: #0a0a0c; --panel: rgba(255,255,255,.06); --pill: rgba(255,255,255,.1); --edge: rgba(255,255,255,.08);
+    --text: #f2f2f2; --dim: #8f8f8f; --faint: #5c5c5c; --tint: #ff8a3d; --accent: #ff8a3d;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); }
   body {
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    min-height: 100vh; min-height: 100dvh;
-    background: radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--tint) 55%, transparent), transparent 70%), var(--bg);
-    -webkit-font-smoothing: antialiased;
+    min-height: 100vh; min-height: 100dvh; -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 440px; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); }
-  .brand { text-align: center; font-size: 13px; font-weight: 600; color: var(--dim); }
-  .brand a, footer a { color: var(--text); text-decoration: none; }
-  .brand a:hover, footer a:hover { text-decoration: underline; }
-  .cover {
-    width: min(78vw, 300px); aspect-ratio: 1; margin: 22px auto 26px; border-radius: 16px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--tint) 85%, white 15%), color-mix(in srgb, var(--tint) 55%, black 45%));
-    box-shadow: 0 18px 50px rgba(0,0,0,.5); display: grid; place-items: center;
-    font-size: min(30vw, 120px); font-weight: 800; color: rgba(255,255,255,.92);
-  }
-  h1 { font-size: 24px; margin: 0; line-height: 1.2; overflow-wrap: anywhere; }
-  .sub { color: var(--dim); font-size: 17px; margin-top: 4px; overflow-wrap: anywhere; }
-  .bar { position: relative; height: 34px; margin-top: 22px; cursor: pointer; touch-action: none; }
-  .track { position: absolute; left: 0; right: 0; top: 15px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.18); }
-  .fill { position: absolute; left: 0; top: 15px; height: 4px; border-radius: 2px; background: var(--text); width: 0; }
-  .knob { position: absolute; top: 10px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--text); left: 0; }
-  .times { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .controls { display: flex; align-items: center; justify-content: center; gap: 36px; margin: 18px 0 8px; }
+  body.track { background: linear-gradient(180deg, color-mix(in srgb, var(--tint) 45%, var(--bg)) 0%, var(--bg) 62%) fixed; }
   button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .play { width: 72px; height: 72px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
-  .play:disabled { opacity: .35; cursor: default; }
-  .skip { width: 44px; height: 44px; display: grid; place-items: center; color: var(--text); position: relative; }
-  .skip span { position: absolute; font-size: 9px; font-weight: 700; top: 17px; }
-  .skip:disabled { opacity: .35; }
-  .note { text-align: center; color: var(--dim); font-size: 14px; margin: 10px 0 0; min-height: 20px; }
-  h2 { font-size: 12px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; margin: 30px 0 10px; }
-  .links { display: grid; gap: 8px; }
-  .link {
-    display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; text-decoration: none; color: var(--text);
-    background: var(--panel); border: 1px solid var(--edge);
+  button:active { transform: scale(.96); }
+  a { color: inherit; }
+  main { max-width: 460px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 20px max(28px, env(safe-area-inset-bottom)); }
+
+  /* The top row: where it's from on the left, Share + ⋯ in a capsule on the right. */
+  .top { display: flex; align-items: center; gap: 12px; min-height: 44px; position: relative; z-index: 2; }
+  .path { flex: 1; min-width: 0; font-size: 15px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .path b { color: var(--text); font-weight: 650; }
+  .path a { text-decoration: none; }
+  .capsule { display: flex; background: rgba(0,0,0,.35); border: 1px solid var(--edge); border-radius: 999px; }
+  .capsule button { width: 40px; height: 36px; display: grid; place-items: center; }
+
+  /* One track: the player page. */
+  .cover {
+    width: 100%; aspect-ratio: 1; margin: 14px 0 22px; border-radius: 14px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--tint) 85%, white 15%), color-mix(in srgb, var(--tint) 50%, black 50%));
+    box-shadow: 0 18px 50px rgba(0,0,0,.45); display: grid; place-items: center; user-select: none;
+    font-size: min(34vw, 150px); font-weight: 800; color: rgba(255,255,255,.92); position: relative; touch-action: manipulation;
   }
-  .link:active { background: rgba(255,255,255,.1); }
+  .cover .skipped { position: absolute; top: 50%; width: 96px; height: 96px; margin-top: -48px; border-radius: 50%; display: grid; place-items: center;
+                    background: rgba(0,0,0,.35); font-size: 24px; font-weight: 700; opacity: 0; transition: opacity .5s; pointer-events: none; }
+  .cover .skipped.show { opacity: 1; transition: none; }
+  .title { display: flex; align-items: center; gap: 4px; font-size: 23px; font-weight: 700; line-height: 1.2; }
+  .title span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .artist { color: var(--dim); font-size: 17px; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pills { display: flex; gap: 8px; margin-top: 16px; overflow-x: auto; scrollbar-width: none; }
+  .pills::-webkit-scrollbar { display: none; }
+  .pill { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 15px; border-radius: 999px;
+          background: var(--pill); font-size: 14px; font-weight: 650; text-decoration: none; }
+  .bar { position: relative; height: 30px; margin-top: 20px; cursor: pointer; touch-action: none; }
+  .bar .line { position: absolute; left: 0; right: 0; top: 14px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.2); }
+  .bar .fill { position: absolute; left: 0; top: 14px; height: 3px; border-radius: 2px; background: var(--text); width: 0; }
+  .bar .knob { position: absolute; top: 9px; width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%; background: var(--text); left: 0; }
+  .times { display: flex; justify-content: space-between; color: var(--dim); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 34px; margin: 16px 0 6px; }
+  .play { width: 72px; height: 72px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
+  .play:disabled, .skip:disabled { opacity: .35; cursor: default; }
+  .skip { width: 48px; height: 48px; display: grid; place-items: center; position: relative; }
+  .skip span { position: absolute; font-size: 9px; font-weight: 700; top: 19px; }
+  .note { text-align: center; color: var(--dim); font-size: 14px; margin: 8px 0 0; min-height: 20px; }
+
+  /* A playlist: the album page. */
+  body.album main { padding-top: 0; }
+  .hero { position: fixed; inset: 0 0 auto 0; height: 46vh; z-index: 0;
+          background: linear-gradient(160deg, color-mix(in srgb, var(--tint) 90%, white 10%), color-mix(in srgb, var(--tint) 35%, black 65%)); }
+  .hero svg { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); opacity: .8; }
+  .hero::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,var(--cover, 0)); }
+  .album .top { position: sticky; top: 0; margin: 0 -20px; padding: max(10px, env(safe-area-inset-top)) 20px 18px;
+                background: linear-gradient(180deg, rgba(10,10,12,var(--shade, .45)), transparent); }
+  .sheet-body { position: relative; z-index: 1; margin: calc(46vh - 76px) -20px 0; padding: 0 20px 20px;
+                background: linear-gradient(180deg, transparent 0, var(--bg) 90px); padding-top: 90px; }
+  .headline { text-align: center; margin-top: -40px; }
+  .headline h1 { font-size: 25px; margin: 0; line-height: 1.2; overflow-wrap: anywhere; }
+  .headline .by { color: var(--accent); font-size: 17px; margin-top: 3px; }
+  .headline .facts { color: var(--dim); font-size: 12px; font-weight: 700; letter-spacing: .04em; margin-top: 4px; text-transform: uppercase; }
+  .bigplay { display: flex; align-items: center; justify-content: center; gap: 9px; margin: 16px auto 18px; width: 170px; height: 48px;
+             border-radius: 999px; background: #fff; color: #111114; font-weight: 700; font-size: 16px; }
+  .rows { display: grid; }
+  .row { display: flex; align-items: center; gap: 4px; min-height: 56px; text-align: left; width: 100%; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .row .num { width: 36px; flex: none; text-align: center; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .row .num i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .row .num i.paused { background: none; border: 1.6px solid var(--accent); }
+  .row .name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; }
+  .row.now .name { color: var(--accent); }
+  .row .more { width: 40px; height: 40px; flex: none; display: grid; place-items: center; color: var(--faint); }
+  .mini { position: fixed; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); max-width: 436px; margin: 0 auto;
+          display: none; align-items: center; gap: 12px; padding: 8px 8px 8px 10px; border-radius: 16px; z-index: 5;
+          background: rgba(34,34,38,.94); border: 1px solid var(--edge); box-shadow: 0 10px 30px rgba(0,0,0,.45); overflow: hidden; }
+  .mini.on { display: flex; }
+  .mini .art { width: 42px; height: 42px; flex: none; border-radius: 8px; background: linear-gradient(135deg, var(--tint), color-mix(in srgb, var(--tint) 40%, black)); }
+  .mini .what { flex: 1; min-width: 0; }
+  .mini .what div { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .mini .what .s { color: var(--dim); font-size: 13px; }
+  .mini button { width: 40px; height: 40px; display: grid; place-items: center; }
+  .mini .progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--text); width: 0; }
+  body.album main { padding-bottom: 96px; }
+
+  /* Sheets: a track's links (Get it), its lyrics. */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10; display: none; }
+  .scrim.on { display: block; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-width: 520px; margin: 0 auto; z-index: 11; max-height: 86vh; overflow: auto;
+           background: #18181b; border-radius: 18px 18px 0 0; padding: 10px 20px max(20px, env(safe-area-inset-bottom));
+           transform: translateY(105%); transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+  .sheet.on { transform: none; }
+  .sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.3); margin: 0 auto 14px; }
+  .sheet h3 { margin: 0 0 12px; font-size: 18px; }
+  .links { display: grid; gap: 8px; }
+  .link { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; text-decoration: none;
+          background: var(--panel); border: 1px solid var(--edge); }
   .link .name { font-weight: 650; flex: 1; }
   .link .what { color: var(--dim); font-size: 14px; }
-  .row { width: 100%; text-align: left; font: inherit; }
-  .row .num { color: var(--dim); width: 22px; font-variant-numeric: tabular-nums; }
-  .row .what { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row.now .name, .row.now .num { color: var(--accent); }
-  .skip:disabled, .play:disabled { opacity: .35; cursor: default; }
-  .open-app { display: block; text-align: center; margin: 14px auto 0; padding: 10px 18px; width: fit-content; border-radius: 999px;
-              border: 1px solid var(--edge); background: var(--panel); color: var(--text); text-decoration: none; font-size: 15px; font-weight: 600; }
+  .words { white-space: pre-wrap; font-size: 22px; font-weight: 700; line-height: 1.45; padding-bottom: 10px; }
+  .words.none { font-size: 15px; font-weight: 400; color: var(--dim); }
+
   .empty { text-align: center; padding: 80px 16px; color: var(--dim); }
   .empty h1 { color: var(--text); margin-bottom: 8px; }
-  footer { text-align: center; color: var(--dim); font-size: 12px; margin-top: 34px; }
-  @media (prefers-reduced-motion: no-preference) { .fill, .knob { transition: none; } }
+  footer { text-align: center; color: var(--dim); font-size: 12px; margin-top: 30px; }
+  footer a { text-decoration: none; color: var(--text); }
 </style>
 </head>
 <body>
-<main id="app">
-  <div class="brand">Sent with <a href="https://bminorr.github.io/bbounce-releases/" target="_blank" rel="noopener">bBounce</a></div>
-  <div class="empty" id="loading">Loading…</div>
-</main>
+<main id="app"><div class="empty" id="loading">Loading…</div></main>
 <audio id="audio" preload="metadata" playsinline></audio>
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
 <script>
 "use strict";
 const $ = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
@@ -84,8 +140,9 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt
 const fmt = (s) => { if (!isFinite(s) || s < 0) s = 0; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
 const safeUrl = (u) => /^https:\/\//i.test(u) ? u : "";
 
-// One track ("1": title, artist, project, colour, stream, then "name<TAB>url" links) or a playlist ("2": title, artist,
-// colour, then "T<TAB>title<TAB>artist<TAB>project<TAB>stream" per track, each followed by "L<TAB>name<TAB>url" links).
+// One track ("1": title, artist, project, colour, stream, then "name<TAB>url" links, "F<TAB>sender", "Y<TAB>lyrics") or a
+// playlist ("2": title, artist, colour, then "T<TAB>title<TAB>artist<TAB>project<TAB>stream" per track, each followed by
+// "L<TAB>name<TAB>url" links and maybe "Y<TAB>lyrics").
 async function readPage() {
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!hash.startsWith("z")) return null;
@@ -95,178 +152,281 @@ async function readPage() {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
   const lines = (await new Response(stream).text()).split("\n");
   if (lines[0] === "1" && lines.length >= 6) {
-    const links = lines.slice(6).filter(Boolean).map(l => { const i = l.indexOf("\t"); return { name: l.slice(0, i), url: safeUrl(l.slice(i + 1)) }; })
-                       .filter(l => l.url);
-    return { playlist: false, title: lines[1], artist: lines[2], colour: lines[4],
-             tracks: [{ title: lines[1], artist: lines[2], project: lines[3], stream: safeUrl(lines[5]), links }] };
+    const t = { title: lines[1], artist: lines[2], project: lines[3], stream: safeUrl(lines[5]), links: [], lyrics: "", from: "" };
+    for (const l of lines.slice(6).filter(Boolean)) {
+      const i = l.indexOf("\t"), name = l.slice(0, i), value = l.slice(i + 1);
+      if (name === "F") t.from = value;
+      else if (name === "Y") t.lyrics = safeUrl(value);
+      else if (safeUrl(value)) t.links.push({ name, url: value });
+    }
+    return { playlist: false, title: lines[1], artist: lines[2], colour: lines[4], tracks: [t] };
   }
   if (lines[0] === "2" && lines.length >= 4) {
     const page = { playlist: true, title: lines[1], artist: lines[2], colour: lines[3], tracks: [] };
     for (const line of lines.slice(4)) {
-      const p = line.split("\t");
-      if (p[0] === "T") page.tracks.push({ title: p[1] || "", artist: p[2] || "", project: p[3] || "", stream: safeUrl(p[4] || ""), links: [] });
-      else if (p[0] === "L" && page.tracks.length && safeUrl(p[2] || "")) page.tracks[page.tracks.length - 1].links.push({ name: p[1], url: p[2] });
+      const p = line.split("\t"), last = page.tracks[page.tracks.length - 1];
+      if (p[0] === "T") page.tracks.push({ title: p[1] || "", artist: p[2] || "", project: p[3] || "", stream: safeUrl(p[4] || ""), links: [], lyrics: "" });
+      else if (p[0] === "L" && last && safeUrl(p[2] || "")) last.links.push({ name: p[1], url: p[2] });
+      else if (p[0] === "Y" && last) last.lyrics = safeUrl(p[1] || "");
     }
     return page.tracks.length ? page : null;
   }
   return null;
 }
 
-function linkLabel(name) {
-  if (name === "Samply") return "Listen, comment, download";
-  if (name === "SoundCloud") return "Listen on SoundCloud";
-  return "Download";
-}
-
+const linkLabel = (name) => name === "Samply" ? "Listen, comment, download" : name === "SoundCloud" ? "Listen on SoundCloud"
+                          : name === "This file" ? "Download" : "Download";
 function showMessage(title, text) {
   const app = document.getElementById("app");
   app.querySelector("#loading")?.remove();
   app.append($(`<div class="empty"><h1>${esc(title)}</h1><div>${esc(text)}</div></div>`));
 }
 
-const skipBack = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.6 7.8A8 8 0 1 1 4 13"/><path d="M5.5 2.5 5 6.5l4 .5"/></svg><span>15</span>`;
-const skipFwd = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M18.4 7.8A8 8 0 1 0 20 13"/><path d="M18.5 2.5 19 6.5l-4 .5"/></svg><span>15</span>`;
-const prevIcon = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 6v12l-10-6Z"/><path d="M5.5 6v12"/></svg>`;
-const nextIcon = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 6v12l10-6Z"/><path d="M18.5 6v12"/></svg>`;
-const playIcon = `<svg width="30" height="30" viewBox="0 0 24 24"><path d="M8 5.5 19 12 8 18.5Z" fill="#111114" stroke="#111114" stroke-linejoin="round" stroke-width="1.5"/></svg>`;
-const pauseIcon = `<svg width="30" height="30" viewBox="0 0 24 24" fill="#111114"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>`;
+const icon = {
+  share: `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7.5 7.5 4.5-4.5 4.5 4.5"/><path d="M6 11H5v9h14v-9h-1"/></svg>`,
+  more: `<svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>`,
+  text: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5h14M12 5v14"/></svg>`,
+  down: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>`,
+  app: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5H5V6h5"/></svg>`,
+  chevron: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`,
+  back15: `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.6 7.8A8 8 0 1 1 4 13"/><path d="M5.5 2.5 5 6.5l4 .5"/></svg><span>15</span>`,
+  fwd15: `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M18.4 7.8A8 8 0 1 0 20 13"/><path d="M18.5 2.5 19 6.5l-4 .5"/></svg><span>15</span>`,
+  prev: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 6v12l-10-6Z"/><path d="M5.5 6v12"/></svg>`,
+  next: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 6v12l10-6Z"/><path d="M18.5 6v12"/></svg>`,
+  play: (c = "#111114", s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><path d="M8 5.5 19 12 8 18.5Z" fill="${c}" stroke="${c}" stroke-linejoin="round" stroke-width="1.5"/></svg>`,
+  pause: (c = "#111114", s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="${c}"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>`,
+  headphones: `<svg width="76" height="76" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>`,
+};
 
-function render(page) {
-  if (/^#[0-9a-f]{6}$/i.test(page.colour)) document.documentElement.style.setProperty("--tint", page.colour);
-  document.title = page.title ? `${page.title} · bBounce` : "bBounce Player";
+// The sheets: a track's links, its lyrics.
+const sheet = document.getElementById("sheet"), scrim = document.getElementById("scrim"), sheetBody = document.getElementById("sheetBody");
+const openSheet = (content) => { sheetBody.replaceChildren(content); scrim.classList.add("on"); requestAnimationFrame(() => sheet.classList.add("on")); };
+const closeSheet = () => { sheet.classList.remove("on"); scrim.classList.remove("on"); };
+scrim.addEventListener("click", closeSheet);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+let sheetY = null;
+sheet.addEventListener("touchstart", (e) => { sheetY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+sheet.addEventListener("touchend", (e) => { if (sheetY !== null && e.changedTouches[0].clientY - sheetY > 80) closeSheet(); sheetY = null; });
+
+function linksSheet(t) {
+  const box = $(`<div><h3>Get “${esc(t.title || "Untitled")}”</h3><div class="links"></div></div>`);
+  const links = [...t.links];
+  if (t.stream && !links.some(l => l.url === t.stream)) links.push({ name: "This file", url: t.stream });
+  for (const l of links)
+    box.lastChild.append($(`<a class="link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><span class="name">${esc(l.name)}</span><span class="what">${esc(linkLabel(l.name))}</span>${icon.chevron}</a>`));
+  if (!links.length) box.lastChild.append($(`<div class="words none">Nothing to download here.</div>`));
+  box.lastChild.append($(`<a class="link" href="bbounce://play${esc(location.hash)}"><span class="name">Open in bBounce</span><span class="what">Import it</span>${icon.chevron}</a>`));
+  openSheet(box);
+}
+
+const lyricsCache = {};
+async function lyricsSheet(t) {
+  const box = $(`<div><h3>${esc(t.title || "Lyrics")}</h3><div class="words none">Loading…</div></div>`);
+  openSheet(box);
+  const words = box.querySelector(".words");
+  try {
+    if (!(t.lyrics in lyricsCache)) {
+      const r = await fetch(t.lyrics, { mode: "cors" });
+      if (!r.ok) throw new Error();
+      lyricsCache[t.lyrics] = (await r.text()).slice(0, 20000);
+    }
+    words.textContent = lyricsCache[t.lyrics] || "No lyrics.";
+    words.classList.toggle("none", !lyricsCache[t.lyrics]);
+  } catch {
+    words.replaceChildren($(`<span>They didn't load here. <a href="${esc(t.lyrics)}" target="_blank" rel="noopener noreferrer">Open them</a>.</span>`));
+  }
+}
+
+async function share(page) {
+  const data = { title: page.title || "bBounce", url: location.href };
+  try { if (navigator.share) return await navigator.share(data); } catch { return; }
+  try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch {}
+}
+function toast(text) {
+  const el = $(`<div style="position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#fff;color:#111;padding:9px 16px;border-radius:999px;font-weight:650;z-index:20">${esc(text)}</div>`);
+  document.body.append(el);
+  setTimeout(() => el.remove(), 1600);
+}
+
+const audio = document.getElementById("audio");
+function bindMedia(page, getCurrent, choose) {
+  if (!("mediaSession" in navigator)) return;
+  navigator.mediaSession.setActionHandler("play", () => audio.play());
+  navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  if (page.playlist) {
+    navigator.mediaSession.setActionHandler("previoustrack", () => choose(Math.max(0, getCurrent() - 1), true));
+    navigator.mediaSession.setActionHandler("nexttrack", () => choose(Math.min(page.tracks.length - 1, getCurrent() + 1), true));
+  } else {
+    navigator.mediaSession.setActionHandler("seekbackward", () => { audio.currentTime = Math.max(0, audio.currentTime - 15); });
+    navigator.mediaSession.setActionHandler("seekforward", () => { audio.currentTime += 15; });
+  }
+}
+const setMeta = (t, album) => { if ("mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album }); };
+
+// One track: the player page.
+function renderTrack(page) {
+  document.body.className = "track";
+  const t = page.tracks[0];
   const app = document.getElementById("app");
-  app.querySelector("#loading").remove();
-  const initial = (page.title || "?").trim().charAt(0).toUpperCase();
-  app.append($(`<div class="cover" aria-hidden="true">${esc(initial)}</div>`));
-  const heading = $(`<div><h1></h1><div class="sub"></div></div>`);
-  app.append(heading);
-
-  const audio = document.getElementById("audio");
+  app.replaceChildren();
+  const top = $(`<div class="top"><div class="path">Sent with <b><a href="https://bminorr.github.io/bbounce-releases/" target="_blank" rel="noopener">bBounce</a></b>${t.from ? " · from " + esc(t.from) : ""}</div>
+      <div class="capsule"><button id="share" aria-label="Share">${icon.share}</button><button id="more" aria-label="More">${icon.more}</button></div></div>`);
+  app.append(top);
+  const initial = (t.title || "?").trim().charAt(0).toUpperCase();
+  const cover = $(`<div class="cover" aria-hidden="true">${esc(initial)}<div class="skipped" style="left:12%"></div><div class="skipped" style="right:12%"></div></div>`);
+  app.append(cover);
+  app.append($(`<div><div class="title"><span>${esc(t.title || "Untitled")}</span></div><div class="artist">${esc([t.artist, t.project].filter(Boolean).join(" · "))}</div></div>`));
+  const pills = $(`<div class="pills"></div>`);
+  if (t.lyrics) pills.append($(`<button class="pill" id="lyrics">${icon.text}Lyrics</button>`));
+  pills.append($(`<button class="pill" id="get">${icon.down}Get it</button>`));
+  pills.append($(`<a class="pill" href="bbounce://play${esc(location.hash)}">${icon.app}Open in bBounce</a>`));
+  app.append(pills);
   const player = $(`<section aria-label="Player">
-      <div class="bar" role="slider" aria-label="Position" tabindex="0"><div class="track"></div><div class="fill"></div><div class="knob"></div></div>
+      <div class="bar" role="slider" aria-label="Position" tabindex="0"><div class="line"></div><div class="fill"></div><div class="knob"></div></div>
       <div class="times"><span id="pos">0:00</span><span id="len">–:––</span></div>
       <div class="controls">
-        <button class="skip" id="back" aria-label="${page.playlist ? "Previous track" : "Back 15 seconds"}">${page.playlist ? prevIcon : skipBack}</button>
+        <button class="skip" id="back" aria-label="Back 15 seconds">${icon.back15}</button>
         <button class="play" id="play" aria-label="Play"></button>
-        <button class="skip" id="fwd" aria-label="${page.playlist ? "Next track" : "Forward 15 seconds"}">${page.playlist ? nextIcon : skipFwd}</button>
+        <button class="skip" id="fwd" aria-label="Forward 15 seconds">${icon.fwd15}</button>
       </div>
-      <p class="note" id="note"></p>
-    </section>`);
+      <p class="note" id="note"></p></section>`);
   app.append(player);
-  // bBounce installed: the same track (or playlist) in the app, with Import.
-  player.append($(`<a class="open-app" href="bbounce://play${esc(location.hash)}">Open in bBounce</a>`));
+  app.append($(`<footer>by <a href="https://bminorr.github.io/" target="_blank" rel="noopener">B Minor</a></footer>`));
+
   const play = player.querySelector("#play"), note = player.querySelector("#note");
-  const bar = player.querySelector(".bar"), fill = player.querySelector(".fill"), knob = player.querySelector(".knob");
+  const bar = player.querySelector(".bar"), fill = bar.querySelector(".fill"), knob = bar.querySelector(".knob");
   const sync = () => {
-    play.innerHTML = audio.paused ? playIcon : pauseIcon;
+    play.innerHTML = audio.paused ? icon.play() : icon.pause();
     play.setAttribute("aria-label", audio.paused ? "Play" : "Pause");
-    const d = audio.duration, p = audio.currentTime;
-    const f = isFinite(d) && d > 0 ? Math.min(1, p / d) : 0;
+    const d = audio.duration, p = audio.currentTime, f = isFinite(d) && d > 0 ? Math.min(1, p / d) : 0;
     fill.style.width = (f * 100) + "%";
     knob.style.left = (f * 100) + "%";
     bar.setAttribute("aria-valuenow", Math.round(f * 100));
     player.querySelector("#pos").textContent = fmt(p);
     player.querySelector("#len").textContent = isFinite(d) ? fmt(d) : "–:––";
   };
-
-  // A playlist: its tracks, tap one to play it (the playing one in the accent colour).
-  let list = null;
-  if (page.playlist) {
-    app.append($(`<h2>${esc(page.tracks.length === 1 ? "1 track" : page.tracks.length + " tracks")}</h2>`));
-    list = $(`<div class="links"></div>`);
-    page.tracks.forEach((t, i) => {
-      const row = $(`<button class="link row"><span class="num">${i + 1}</span><span class="name">${esc(t.title || "Untitled")}</span><span class="what">${esc(t.project)}</span></button>`);
-      row.addEventListener("click", () => choose(i, true));
-      list.append(row);
-    });
-    app.append(list);
-  }
-  const getIt = $(`<div></div>`);
-  app.append(getIt);
-
-  let current = -1;
-  const choose = (i, start) => {
-    if (i < 0 || i >= page.tracks.length) return;
-    current = i;
-    const t = page.tracks[i];
-    heading.querySelector("h1").textContent = page.playlist ? t.title || "Untitled" : page.title || "Untitled";
-    const sub = page.playlist ? [t.artist, page.title].filter(Boolean).join(" · ") : [t.artist, t.project].filter(Boolean).join(" · ");
-    heading.querySelector(".sub").textContent = sub;
-    if (list) [...list.children].forEach((r, k) => r.classList.toggle("now", k === i));
-    note.textContent = t.stream ? "" : "This one can't play here: open it from its links below.";
-    play.disabled = !t.stream;
-    if (t.stream) {
-      audio.src = t.stream;
-      if (start) audio.play().catch(() => {});
-    } else {
-      audio.removeAttribute("src");
-      audio.load();
-    }
-    if ("mediaSession" in navigator)
-      navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: page.playlist ? page.title : t.project });
-    // Where to get it: its links (and the file itself).
-    getIt.replaceChildren();
-    const links = [...t.links];
-    if (t.stream && !links.some(l => l.url === t.stream)) links.push({ name: "This file", url: t.stream });
-    if (links.length) {
-      getIt.append($(`<h2>${page.playlist ? "Get “" + esc(t.title) + "”" : "Get it"}</h2>`));
-      const box = $(`<div class="links"></div>`);
-      for (const l of links)
-        box.append($(`<a class="link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
-            <span class="name">${esc(l.name)}</span><span class="what">${esc(l.name === "This file" ? "Download" : linkLabel(l.name))}</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></a>`));
-      getIt.append(box);
-    }
-    sync();
-  };
-
-  audio.addEventListener("timeupdate", sync);
-  audio.addEventListener("durationchange", sync);
-  audio.addEventListener("play", sync);
-  audio.addEventListener("pause", sync);
-  audio.addEventListener("ended", () => { sync(); if (page.playlist && current + 1 < page.tracks.length) choose(current + 1, true); });
+  play.disabled = !t.stream;
+  note.textContent = t.stream ? "" : "This one can't play here: Get it opens its links.";
+  if (t.stream) audio.src = t.stream;
+  setMeta(t, t.project);
+  const skip = (s) => { if (isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + s)); sync(); };
+  ["timeupdate", "durationchange", "play", "pause", "ended"].forEach(e => audio.addEventListener(e, sync));
   audio.addEventListener("waiting", () => { note.textContent = "Loading…"; });
   audio.addEventListener("playing", () => { note.textContent = ""; });
-  audio.addEventListener("error", () => {
-    if (!audio.getAttribute("src")) return;
-    note.textContent = "The file isn't there any more (quick links expire) or the connection dropped. The links below may still work.";
-  });
+  audio.addEventListener("error", () => { if (audio.getAttribute("src")) note.textContent = "The file isn't there any more (quick links expire) or the connection dropped. Get it may still work."; });
   play.addEventListener("click", () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); });
-  player.querySelector("#back").addEventListener("click", () => {
-    if (page.playlist) choose(audio.currentTime > 3 ? current : Math.max(0, current - 1), true);
-    else audio.currentTime = Math.max(0, audio.currentTime - 15);
+  player.querySelector("#back").addEventListener("click", () => skip(-15));
+  player.querySelector("#fwd").addEventListener("click", () => skip(15));
+  // A double tap on the cover, like the app: −15 on its left half, +15 on its right.
+  let lastTap = 0;
+  cover.addEventListener("click", (e) => {
+    const now = Date.now();
+    if (now - lastTap > 320) { lastTap = now; return; }
+    lastTap = 0;
+    const r = cover.getBoundingClientRect(), forward = e.clientX > r.left + r.width / 2;
+    skip(forward ? 15 : -15);
+    const mark = cover.querySelectorAll(".skipped")[forward ? 1 : 0];
+    mark.textContent = forward ? "+15" : "−15";
+    mark.classList.add("show");
+    setTimeout(() => mark.classList.remove("show"), 60);
   });
-  player.querySelector("#fwd").addEventListener("click", () => {
-    if (page.playlist) choose(Math.min(page.tracks.length - 1, current + 1), true);
-    else audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 15);
-  });
-  const seek = (e) => {
-    const r = bar.getBoundingClientRect();
-    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-    if (isFinite(audio.duration)) { audio.currentTime = f * audio.duration; sync(); }
-  };
+  const seek = (e) => { const r = bar.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); if (isFinite(audio.duration)) { audio.currentTime = f * audio.duration; sync(); } };
   bar.addEventListener("pointerdown", (e) => { bar.setPointerCapture(e.pointerId); seek(e); });
   bar.addEventListener("pointermove", (e) => { if (bar.hasPointerCapture(e.pointerId)) seek(e); });
-  bar.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") audio.currentTime += 5;
-    else if (e.key === "ArrowLeft") audio.currentTime = Math.max(0, audio.currentTime - 5);
+  bar.addEventListener("keydown", (e) => { if (e.key === "ArrowRight") skip(5); else if (e.key === "ArrowLeft") skip(-5); });
+  document.addEventListener("keydown", (e) => { if (e.key === " " && e.target === document.body) { e.preventDefault(); play.click(); } });
+  top.querySelector("#share").addEventListener("click", () => share(page));
+  top.querySelector("#more").addEventListener("click", () => linksSheet(t));
+  pills.querySelector("#get").addEventListener("click", () => linksSheet(t));
+  pills.querySelector("#lyrics")?.addEventListener("click", () => lyricsSheet(t));
+  bindMedia(page, () => 0, () => {});
+  sync();
+}
+
+// A playlist: the album page, and a small player at the bottom.
+function renderAlbum(page) {
+  document.body.className = "album";
+  const app = document.getElementById("app");
+  app.replaceChildren();
+  document.body.prepend($(`<div class="hero" aria-hidden="true">${icon.headphones}</div>`));
+  const top = $(`<div class="top"><div class="path">Sent with <b><a href="https://bminorr.github.io/bbounce-releases/" target="_blank" rel="noopener">bBounce</a></b></div>
+      <div class="capsule"><button id="share" aria-label="Share">${icon.share}</button><button id="more" aria-label="Open in bBounce">${icon.more}</button></div></div>`);
+  app.append(top);
+  const body = $(`<div class="sheet-body"></div>`);
+  app.append(body);
+  body.append($(`<div class="headline"><h1>${esc(page.title || "A playlist")}</h1>${page.artist ? `<div class="by">From ${esc(page.artist)}</div>` : ""}
+      <div class="facts">${page.tracks.length === 1 ? "1 track" : page.tracks.length + " tracks"}</div></div>`));
+  const big = $(`<button class="bigplay">${icon.play("#111114", 20)}Play</button>`);
+  body.append(big);
+  const rows = $(`<div class="rows"></div>`);
+  page.tracks.forEach((t, i) => {
+    const row = $(`<div class="row" role="button" tabindex="0"><span class="num">${i + 1}</span><span class="name">${esc(t.title || "Untitled")}</span>
+        <button class="more" aria-label="More">${icon.more}</button></div>`);
+    row.addEventListener("click", (e) => { if (!e.target.closest(".more")) choose(i, true); });
+    row.querySelector(".more").addEventListener("click", () => {
+      if (!t.lyrics) return linksSheet(t);
+      const box = $(`<div><h3>${esc(t.title || "Untitled")}</h3><div class="links">
+          <button class="link" id="w"><span class="name">Lyrics</span>${icon.chevron}</button>
+          <button class="link" id="g"><span class="name">Get it</span>${icon.chevron}</button></div></div>`);
+      box.querySelector("#w").addEventListener("click", () => lyricsSheet(t));
+      box.querySelector("#g").addEventListener("click", () => linksSheet(t));
+      openSheet(box);
+    });
+    rows.append(row);
   });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === " " && e.target === document.body) { e.preventDefault(); play.click(); }
-  });
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.setActionHandler("play", () => audio.play());
-    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
-    if (page.playlist) {
-      navigator.mediaSession.setActionHandler("previoustrack", () => choose(Math.max(0, current - 1), true));
-      navigator.mediaSession.setActionHandler("nexttrack", () => choose(Math.min(page.tracks.length - 1, current + 1), true));
-    } else {
-      navigator.mediaSession.setActionHandler("seekbackward", () => { audio.currentTime = Math.max(0, audio.currentTime - 15); });
-      navigator.mediaSession.setActionHandler("seekforward", () => { audio.currentTime += 15; });
-    }
-  }
-  choose(0, false);
-  app.append($(`<footer>by <a href="https://bminorr.github.io/" target="_blank" rel="noopener">B Minor</a></footer>`));
+  body.append(rows);
+  body.append($(`<footer>by <a href="https://bminorr.github.io/" target="_blank" rel="noopener">B Minor</a></footer>`));
+
+  const mini = $(`<div class="mini" role="region" aria-label="Playing"><div class="art"></div><div class="what"><div id="mt"></div><div class="s" id="ms"></div></div>
+      <button id="mp" aria-label="Previous">${icon.prev}</button><button id="mplay" aria-label="Play"></button><button id="mn" aria-label="Next">${icon.next}</button><div class="progress"></div></div>`);
+  document.body.append(mini);
+
+  let current = -1;
+  const sync = () => {
+    mini.querySelector("#mplay").innerHTML = audio.paused ? icon.play("#f2f2f2", 26) : icon.pause("#f2f2f2", 26);
+    const d = audio.duration;
+    mini.querySelector(".progress").style.width = (isFinite(d) && d > 0 ? Math.min(1, audio.currentTime / d) * 100 : 0) + "%";
+    [...rows.children].forEach((r, k) => {
+      r.classList.toggle("now", k === current);
+      r.querySelector(".num").innerHTML = k === current ? `<i class="${audio.paused ? "paused" : ""}"></i>` : String(k + 1);
+    });
+  };
+  const choose = (i, start) => {
+    if (i < 0 || i >= page.tracks.length) return;
+    const t = page.tracks[i];
+    if (!t.stream) { linksSheet(t); return; }
+    current = i;
+    mini.classList.add("on");
+    mini.querySelector("#mt").textContent = t.title || "Untitled";
+    mini.querySelector("#ms").textContent = [t.artist, t.project].filter(Boolean).join(" · ");
+    audio.src = t.stream;
+    if (start) audio.play().catch(() => {});
+    setMeta(t, page.title);
+    sync();
+  };
+  ["timeupdate", "durationchange", "play", "pause"].forEach(e => audio.addEventListener(e, sync));
+  audio.addEventListener("ended", () => { if (current + 1 < page.tracks.length) choose(current + 1, true); else sync(); });
+  big.addEventListener("click", () => { const first = page.tracks.findIndex(t => t.stream); if (first >= 0) choose(first, true); });
+  mini.querySelector("#mplay").addEventListener("click", () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); });
+  mini.querySelector("#mp").addEventListener("click", () => choose(audio.currentTime > 3 ? current : Math.max(0, current - 1), true));
+  mini.querySelector("#mn").addEventListener("click", () => choose(Math.min(page.tracks.length - 1, current + 1), true));
+  top.querySelector("#share").addEventListener("click", () => share(page));
+  top.querySelector("#more").addEventListener("click", () => { location.href = "bbounce://play" + location.hash; });
+  // The colour darkens as the list rises over it; the path's shade grows.
+  const onScroll = () => {
+    const f = Math.max(0, Math.min(1, window.scrollY / (window.innerHeight * 0.4)));
+    document.body.style.setProperty("--cover", (0.55 * f).toFixed(3));
+    document.body.style.setProperty("--shade", (0.45 + 0.5 * f).toFixed(3));
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  bindMedia(page, () => current, choose);
+}
+
+function render(page) {
+  if (/^#[0-9a-f]{6}$/i.test(page.colour)) document.documentElement.style.setProperty("--tint", page.colour);
+  document.title = page.title ? `${page.title} · bBounce` : "bBounce Player";
+  if (page.playlist) renderAlbum(page); else renderTrack(page);
 }
 
 readPage().then(p => p ? render(p) : showMessage("Nothing to play", "Scan a QR code from bBounce to open a track here."))
