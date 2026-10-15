@@ -121,6 +121,8 @@
   .link .what { color: var(--dim); font-size: 14px; }
   .words { white-space: pre-wrap; font-size: 22px; font-weight: 700; line-height: 1.45; padding-bottom: 10px; }
   .words.none { font-size: 15px; font-weight: 400; color: var(--dim); }
+  .words .line { color: color-mix(in srgb, var(--text) 40%, transparent); padding: 4px 0; cursor: pointer; transition: color .2s, transform .2s; }
+  .words .line.now { color: var(--text); }
 
   .empty { text-align: center; padding: 80px 16px; color: var(--dim); }
   .empty h1 { color: var(--text); margin-bottom: 8px; }
@@ -222,6 +224,35 @@ function linksSheet(t) {
 }
 
 const lyricsCache = {};
+// Synced lyrics (lines starting "[mm:ss.xx]", LRC): one line each, the one being sung bright and kept in view; a tap
+// goes there. Plain ones: as they are.
+function parseSynced(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const out = lines.map(l => { const m = l.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/); return m ? { t: +m[1] * 60 + +m[2], text: m[3] } : { t: -1, text: l }; });
+  if (out.filter(l => l.t >= 0).length * 2 < out.length) return null;
+  out.forEach((l, i) => { if (l.t < 0) l.t = i ? out[i - 1].t : 0; });
+  return out;
+}
+let lyricsFollow = null;
+function showWords(box, text) {
+  if (lyricsFollow) audio.removeEventListener("timeupdate", lyricsFollow);
+  lyricsFollow = null;
+  const synced = text ? parseSynced(text) : null;
+  if (!synced) { box.textContent = text || "No lyrics."; box.classList.toggle("none", !text); return; }
+  box.classList.remove("none");
+  box.replaceChildren(...synced.map(l => { const d = $(`<div class="line">${esc(l.text) || "&nbsp;"}</div>`); d.addEventListener("click", () => { audio.currentTime = l.t; }); return d; }));
+  let last = -1;
+  lyricsFollow = () => {
+    let now = -1;
+    synced.forEach((l, i) => { if (l.t <= audio.currentTime + 0.05) now = i; });
+    if (now === last) return;
+    last = now;
+    [...box.children].forEach((d, i) => d.classList.toggle("now", i === now));
+    if (now >= 0) box.children[now].scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+  audio.addEventListener("timeupdate", lyricsFollow);
+  lyricsFollow();
+}
 async function lyricsSheet(t) {
   const box = $(`<div><h3>${esc(t.title || "Lyrics")}</h3><div class="words none">Loading…</div></div>`);
   openSheet(box);
@@ -235,8 +266,7 @@ async function lyricsSheet(t) {
         if (!r.ok) throw new Error();
         lyricsCache[url] = (await r.text()).slice(0, 20000);
       }
-      words.textContent = lyricsCache[url] || "No lyrics.";
-      words.classList.toggle("none", !lyricsCache[url]);
+      showWords(words, lyricsCache[url]);
       return;
     } catch {}
   }
