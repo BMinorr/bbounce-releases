@@ -10,7 +10,7 @@
   The page a bBounce QR code opens (Source/PlayerLink.h): what to play and where it was sent travel after the "#",
   which the browser never sends to a server. "z" + base64url of zlib-deflated lines:
   version, title, artist, project, colour, stream URL, then "name<TAB>url" for each link ("F<TAB>who sent it",
-  "Y<TAB>the lyrics file's address" are lines of their own).
+  "Y<TAB>the lyrics file's address", "W<TAB>a copy of them the page can read" are lines of their own).
   1.9.13: it looks like the app. One track: the player page (the cover, the title, Lyrics · Get it · Open in bBounce,
   a thin bar, −15 · play · +15). A playlist: an album page (its colour across the top, the name centred, who sent it,
   one white Play, the numbered tracks), and a small player at the bottom while one plays.
@@ -152,11 +152,12 @@ async function readPage() {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
   const lines = (await new Response(stream).text()).split("\n");
   if (lines[0] === "1" && lines.length >= 6) {
-    const t = { title: lines[1], artist: lines[2], project: lines[3], stream: safeUrl(lines[5]), links: [], lyrics: "", from: "" };
+    const t = { title: lines[1], artist: lines[2], project: lines[3], stream: safeUrl(lines[5]), links: [], lyrics: "", lyricsWeb: "", from: "" };
     for (const l of lines.slice(6).filter(Boolean)) {
       const i = l.indexOf("\t"), name = l.slice(0, i), value = l.slice(i + 1);
       if (name === "F") t.from = value;
       else if (name === "Y") t.lyrics = safeUrl(value);
+      else if (name === "W") t.lyricsWeb = safeUrl(value);
       else if (safeUrl(value)) t.links.push({ name, url: value });
     }
     return { playlist: false, title: lines[1], artist: lines[2], colour: lines[4], tracks: [t] };
@@ -168,6 +169,7 @@ async function readPage() {
       if (p[0] === "T") page.tracks.push({ title: p[1] || "", artist: p[2] || "", project: p[3] || "", stream: safeUrl(p[4] || ""), links: [], lyrics: "" });
       else if (p[0] === "L" && last && safeUrl(p[2] || "")) last.links.push({ name: p[1], url: p[2] });
       else if (p[0] === "Y" && last) last.lyrics = safeUrl(p[1] || "");
+      else if (p[0] === "W" && last) last.lyricsWeb = safeUrl(p[1] || "");
     }
     return page.tracks.length ? page : null;
   }
@@ -224,17 +226,22 @@ async function lyricsSheet(t) {
   const box = $(`<div><h3>${esc(t.title || "Lyrics")}</h3><div class="words none">Loading…</div></div>`);
   openSheet(box);
   const words = box.querySelector(".words");
-  try {
-    if (!(t.lyrics in lyricsCache)) {
-      const r = await fetch(t.lyrics, { mode: "cors" });
-      if (!r.ok) throw new Error();
-      lyricsCache[t.lyrics] = (await r.text()).slice(0, 20000);
-    }
-    words.textContent = lyricsCache[t.lyrics] || "No lyrics.";
-    words.classList.toggle("none", !lyricsCache[t.lyrics]);
-  } catch {
-    words.replaceChildren($(`<span>They didn't load here. <a href="${esc(t.lyrics)}" target="_blank" rel="noopener noreferrer">Open them</a>.</span>`));
+  // The copy a page can read (dpaste), else the file itself (Pixeldrain lets pages read it; Catbox doesn't).
+  const sources = [t.lyricsWeb, t.lyrics].filter(Boolean);
+  for (const url of sources) {
+    try {
+      if (!(url in lyricsCache)) {
+        const r = await fetch(url, { mode: "cors" });
+        if (!r.ok) throw new Error();
+        lyricsCache[url] = (await r.text()).slice(0, 20000);
+      }
+      words.textContent = lyricsCache[url] || "No lyrics.";
+      words.classList.toggle("none", !lyricsCache[url]);
+      return;
+    } catch {}
   }
+  const open = t.lyrics || t.lyricsWeb;
+  words.replaceChildren($(`<span>They didn't load here. <a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open them</a>.</span>`));
 }
 
 async function share(page) {
@@ -277,7 +284,7 @@ function renderTrack(page) {
   app.append(cover);
   app.append($(`<div><div class="title"><span>${esc(t.title || "Untitled")}</span></div><div class="artist">${esc([t.artist, t.project].filter(Boolean).join(" · "))}</div></div>`));
   const pills = $(`<div class="pills"></div>`);
-  if (t.lyrics) pills.append($(`<button class="pill" id="lyrics">${icon.text}Lyrics</button>`));
+  if (t.lyrics || t.lyricsWeb) pills.append($(`<button class="pill" id="lyrics">${icon.text}Lyrics</button>`));
   pills.append($(`<button class="pill" id="get">${icon.down}Get it</button>`));
   pills.append($(`<a class="pill" href="bbounce://play${esc(location.hash)}">${icon.app}Open in bBounce</a>`));
   app.append(pills);
@@ -364,7 +371,7 @@ function renderAlbum(page) {
         <button class="more" aria-label="More">${icon.more}</button></div>`);
     row.addEventListener("click", (e) => { if (!e.target.closest(".more")) choose(i, true); });
     row.querySelector(".more").addEventListener("click", () => {
-      if (!t.lyrics) return linksSheet(t);
+      if (!t.lyrics && !t.lyricsWeb) return linksSheet(t);
       const box = $(`<div><h3>${esc(t.title || "Untitled")}</h3><div class="links">
           <button class="link" id="w"><span class="name">Lyrics</span>${icon.chevron}</button>
           <button class="link" id="g"><span class="name">Get it</span>${icon.chevron}</button></div></div>`);
